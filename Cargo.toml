@@ -1,0 +1,46 @@
+[package]
+name = "tlsn-langchain"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "tlsn_langchain"
+crate-type = ["cdylib"]
+
+[dependencies]
+hex = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["alloc", "now"], default-features = false }
+anyhow = "1.0.93"
+dotenv = { version = "0.15.0" }
+
+tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "macros"] }
+tokio-util = { version = "0.7" }
+
+tlsn-core = { git = "https://github.com/tlsnotary/tlsn", package = "tlsn-core", tag = "v0.1.0-alpha.6" }
+tlsn-prover = { git = "https://github.com/tlsnotary/tlsn", package = "tlsn-prover", tag = "v0.1.0-alpha.6", features = ["formats"] }
+tlsn-verifier = { git = "https://github.com/tlsnotary/tlsn", package = "tlsn-verifier", tag = "v0.1.0-alpha.6" }
+tlsn-formats = { git = "https://github.com/tlsnotary/tlsn", package = "tlsn-formats", tag = "v0.1.0-alpha.6" }
+notary-client = { git = "https://github.com/tlsnotary/tlsn", package = "notary-client", tag = "v0.1.0-alpha.6" }
+
+hyper = { version = "1.1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["full"] }
+hyper-tls = { version = "0.6.0" }
+
+http-body-util = { version = "0.1.2" }
+p256 = { version = "0.13", features = ["ecdsa"] }
+futures = { version = "0.3" }
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3" }
+spansy = { git = "https://github.com/tlsnotary/tlsn-utils", package = "spansy", rev = "45370cc" }
+
+pyo3 = { version = "^0.20.0", features = ["extension-module"] }
+pyo3-asyncio = { version = "0.20.0", features = ["tokio-runtime"] }
+
+[dev-dependencies]
+dotenv = { version = "0.15.0" }
+
+
+[patch."https://github.com/tlsnotary/tlsn"]
+notary-client = { git = "https://github.com/ElusAegis/tlsn/", package = "notary-client", rev = "e8c45c33e8b694b9254c383bed7429a4a3b4d4e0" }
