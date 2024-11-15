@@ -7,13 +7,11 @@ use p256::pkcs8::DecodePrivateKey;
 use tokio::task;
 
 use crate::config::Config;
-use pyo3::{PyAny, PyResult, Python};
 use std::str;
 use tlsn_core::SessionHeader;
 use tlsn_prover::tls::state::Closed;
 use tlsn_prover::tls::{Prover, ProverConfig, ProverControl, ProverError};
 use tlsn_verifier::tls::{Verifier, VerifierConfig};
-use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tokio_util::compat::TokioAsyncReadCompatExt;

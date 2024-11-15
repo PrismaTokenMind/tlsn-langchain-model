@@ -4,21 +4,18 @@ mod config;
 mod tlsn_operations;
 
 use crate::config::{Config, ModelSettings};
-use crate::model_interactions::{shutdown_connection, single_interaction_round};
-use crate::setup_notary::{run_dummy_notary, setup_connections};
+use crate::model_interactions::single_interaction_round;
+use crate::setup_notary::setup_connections;
 use crate::tlsn_operations::{build_proof, notarise_session};
 use anyhow::{Context, Result};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::PyModule;
 use pyo3::{pyfunction, pymodule, wrap_pyfunction, PyAny, PyErr, PyResult, Python};
-use tokio::net::TcpListener;
-use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::debug;
 
 #[pymodule]
-fn tlsn_langchain(py: Python, m: &PyModule) -> PyResult<()> {
+fn tlsn_langchain(_: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(exec, m)?)?;
-    m.add_function(wrap_pyfunction!(start_notary_service, m)?)?;
     Ok(())
 }
 
@@ -28,21 +25,6 @@ pub fn exec(py: Python, model: String, api_key: String, messages: Vec<String>) -
         generate_conversation_attribution(model, api_key, messages).await.map_err(|e| {
             PyErr::new::<PyTypeError, _>(e.to_string())
         })
-    })
-}
-
-#[pyfunction]
-fn start_notary_service(py: Python) -> PyResult<&PyAny> {
-    pyo3_asyncio::tokio::future_into_py(py, async move {
-        let (prover_socket, notary_socket) = tokio::io::duplex(1 << 16);
-
-        let connection_id = format!("{}_conversation", "dummy");
-
-        // Spawn the dummy notary service using Tokio's runtime
-        tokio::spawn(run_dummy_notary(notary_socket.compat(), connection_id));
-
-        // Optionally, return a success response or handle errors if needed
-        Ok(Python::with_gil(|py| py.None()))
     })
 }
 
@@ -59,7 +41,7 @@ pub async fn generate_conversation_attribution(model: String, api_key: String, m
 
     debug!("The system is being setup...");
 
-    let (prover_ctrl, prover_task, mut request_sender) = setup_connections(&config)
+    let (_, prover_task, mut request_sender) = setup_connections(&config)
         .await
         .context("Error setting up connections")?;
 
@@ -74,7 +56,6 @@ pub async fn generate_conversation_attribution(model: String, api_key: String, m
     let mut sent_private_data = vec![];
 
     let response = single_interaction_round(
-        prover_ctrl,
         &mut request_sender,
         &config,
         parsed_messages,
@@ -84,15 +65,6 @@ pub async fn generate_conversation_attribution(model: String, api_key: String, m
         .await?;
 
     debug!("Shutting down the connection with the API...");
-
-    // Shutdown the connection by sending a final dummy request to the API
-    // shutdown_connection(
-    //     prover_ctrl,
-    //     &mut request_sender,
-    //     &mut recv_private_data,
-    //     &config,
-    // )
-    //     .await;
 
     // Notarize the session
     debug!("Notarizing the session...");
@@ -123,13 +95,31 @@ mod tests {
             "role": "user",
             "content": "Hello, I am John, how are you doing?"
         }
-    ).to_string()];
+        ).to_string()];
+
+        println!("Model: {}", messages[0]);
 
         let (response, proof) = generate_conversation_attribution(model, api_key, messages).await?;
         println!("Response: {}", response);
         println!("Proof: {}", proof);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_parsing() {
+        let messages = vec!["        {
+            \"role\": \"user\",
+            \"content\": \"Hello, I am John, how are you doing?\"
+        }"];
+
+        let parsed_messages = messages
+            .iter()
+            .map(|m| serde_json::from_str(m))
+            .collect::<Result<Vec<serde_json::Value>, _>>().unwrap();
+
+        println!("{:?}", parsed_messages);
+        assert!(parsed_messages.len() == 1);
     }
 }
 
