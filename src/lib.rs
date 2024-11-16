@@ -23,13 +23,13 @@ fn tlsn_langchain(_: Python, m: &PyModule) -> PyResult<()> {
 #[pyfunction]
 pub fn exec(py: Python, model: String, api_key: String, messages: Vec<String>, tools: Vec<String>, top_p: f64, temperature: f64, stream: bool) -> PyResult<&PyAny> {
     pyo3_asyncio::tokio::future_into_py(py, async move {
-        generate_conversation_attribution(model, api_key, messages, tools, top_p, temperature).await.map_err(|e| {
+        notarised_model_request(model, api_key, messages, tools, top_p, temperature).await.map_err(|e| {
             PyErr::new::<PyTypeError, _>(e.to_string())
         })
     })
 }
 
-pub async fn generate_conversation_attribution(model: String, api_key: String, messages: Vec<String>, tools: Vec<String>, top_p: f64, temperature: f64) -> Result<(String, String)> {
+pub async fn notarised_model_request(model: String, api_key: String, messages: Vec<String>, tools: Vec<String>, top_p: f64, temperature: f64) -> Result<(String, String)> {
     let config = Config {
         model_settings: ModelSettings {
             id: model,
@@ -140,7 +140,7 @@ mod tests {
         let top_p = 0.85;
         let temperature = 0.3;
 
-        let (response, proof) = generate_conversation_attribution(model, api_key, messages, tools, top_p, temperature).await?;
+        let (response, proof) = notarised_model_request(model, api_key, messages, tools, top_p, temperature).await?;
         println!("Response: {}", response);
         println!("Proof: {}", proof.replace("\n", "").replace(" ", ""));
 
