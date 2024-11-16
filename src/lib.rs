@@ -19,16 +19,17 @@ fn tlsn_langchain(_: Python, m: &PyModule) -> PyResult<()> {
     Ok(())
 }
 
+#[allow(unused_variables)]
 #[pyfunction]
-pub fn exec(py: Python, model: String, api_key: String, messages: Vec<String>) -> PyResult<&PyAny> {
+pub fn exec(py: Python, model: String, api_key: String, messages: Vec<String>, tools: Vec<String>, top_p: f64, temperature: f64, stream: bool) -> PyResult<&PyAny> {
     pyo3_asyncio::tokio::future_into_py(py, async move {
-        generate_conversation_attribution(model, api_key, messages).await.map_err(|e| {
+        generate_conversation_attribution(model, api_key, messages, tools, top_p, temperature).await.map_err(|e| {
             PyErr::new::<PyTypeError, _>(e.to_string())
         })
     })
 }
 
-pub async fn generate_conversation_attribution(model: String, api_key: String, messages: Vec<String>) -> Result<(String, String)> {
+pub async fn generate_conversation_attribution(model: String, api_key: String, messages: Vec<String>, tools: Vec<String>, top_p: f64, temperature: f64) -> Result<(String, String)> {
     let config = Config {
         model_settings: ModelSettings {
             id: model,
@@ -41,6 +42,7 @@ pub async fn generate_conversation_attribution(model: String, api_key: String, m
 
     debug!("The system is being setup...");
 
+    // TODO - explore how to do it stateful to avoid redoing the attestation every time
     let (_, prover_task, mut request_sender) = setup_connections(&config)
         .await
         .context("Error setting up connections")?;
@@ -52,6 +54,12 @@ pub async fn generate_conversation_attribution(model: String, api_key: String, m
         .collect::<Result<Vec<serde_json::Value>, _>>()
         .context("Error parsing messages")?;
 
+    let parsed_tools = tools
+        .iter()
+        .map(|m| serde_json::from_str(m))
+        .collect::<Result<Vec<serde_json::Value>, _>>()
+        .context("Error parsing tools")?;
+
     let mut recv_private_data = vec![];
     let mut sent_private_data = vec![];
 
@@ -59,6 +67,9 @@ pub async fn generate_conversation_attribution(model: String, api_key: String, m
         &mut request_sender,
         &config,
         parsed_messages,
+        parsed_tools,
+        top_p,
+        temperature,
         &mut recv_private_data,
         &mut sent_private_data,
     )
@@ -90,36 +101,115 @@ mod tests {
         let api_key = env::var("REDPILL_API_KEY")?;
 
         let model = "gpt-4o".to_string();
-        let messages = vec![serde_json::json!(
-        {
-            "role": "user",
-            "content": "Hello, I am John, how are you doing?"
-        }
-        ).to_string()];
 
-        println!("Model: {}", messages[0]);
+        let messages = vec![
+            "{
+                \"role\": \"user\",
+                \"content\": \"hi im bob! and i live in sf\"
+            }",
+            "{
+                \"role\": \"assistant\",
+                \"content\": \"Hi Bob! It's great to meet you. How can I assist you today?\"
+            }",
+            "{
+                \"role\": \"user\",
+                \"content\": \"whats the weather where I live?\"
+            }"
+        ].iter().map(|s| s.to_string()).collect::<Vec<String>>();
 
-        let (response, proof) = generate_conversation_attribution(model, api_key, messages).await?;
+        let tools: Vec<String> = vec!["
+            {
+                \"type\": \"function\",
+                \"function\": {
+                    \"name\": \"tavily_search_results_json\",
+                    \"description\": \"A search engine optimized for comprehensive, accurate, and trusted results. Useful for when you need to answer questions about current events. Input should be a search query.\",
+                    \"parameters\": {
+                        \"properties\": {
+                            \"query\": {
+                                \"description\": \"search query to look up\",
+                                \"type\": \"string\"
+                            }
+                        },
+                        \"required\": [\"query\"],
+                        \"type\": \"object\"
+                    }
+                }
+            }"
+        ].iter().map(|s| s.to_string()).collect::<Vec<String>>();
+
+        let top_p = 0.85;
+        let temperature = 0.3;
+
+        let (response, proof) = generate_conversation_attribution(model, api_key, messages, tools, top_p, temperature).await?;
         println!("Response: {}", response);
-        println!("Proof: {}", proof);
+        println!("Proof: {}", proof.replace("\n", "").replace(" ", ""));
 
         Ok(())
     }
 
     #[test]
-    fn test_parsing() {
-        let messages = vec!["        {
-            \"role\": \"user\",
-            \"content\": \"Hello, I am John, how are you doing?\"
-        }"];
+    fn test_parsing() -> Result<()> {
+        let messages = vec![
+            "{
+                \"role\": \"user\",
+                \"content\": \"hi im bob! and i live in sf\"
+            }",
+            "{
+                \"role\": \"assistant\",
+                \"content\": \"Hi Bob! It's great to meet you. How can I assist you today?\"
+            }",
+            "{
+                \"role\": \"user\",
+                \"content\": \"whats the weather where I live?\"
+            }"
+        ].iter().map(|s| s.to_string()).collect::<Vec<String>>();
 
-        let parsed_messages = messages
+        let tools: Vec<String> = vec!["
+            {
+                \"type\": \"function\",
+                \"function\": {
+                    \"name\": \"tavily_search_results_json\",
+                    \"description\": \"A search engine optimized for comprehensive, accurate, and trusted results. Useful for when you need to answer questions about current events. Input should be a search query.\",
+                    \"parameters\": {
+                        \"properties\": {
+                            \"query\": {
+                                \"description\": \"search query to look up\",
+                                \"type\": \"string\"
+                            }
+                        },
+                        \"required\": [\"query\"],
+                        \"type\": \"object\"
+                    }
+                }
+            }
+        "].iter().map(|s| s.to_string()).collect::<Vec<String>>();
+
+        let parsed_messages: Vec<serde_json::Value> = messages
             .iter()
             .map(|m| serde_json::from_str(m))
-            .collect::<Result<Vec<serde_json::Value>, _>>().unwrap();
+            .collect::<Result<Vec<serde_json::Value>, _>>()?;
+        let parsed_tools: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|m| serde_json::from_str(m))
+            .collect::<Result<Vec<serde_json::Value>, _>>()?;
 
-        println!("{:?}", parsed_messages);
-        assert!(parsed_messages.len() == 1);
+        assert_eq!(parsed_messages.len(), 3);
+        assert_eq!(parsed_tools.len(), 1);
+
+        assert_eq!(
+            parsed_messages[1]
+                .get("content")
+                .and_then(|name| name.as_str()), // Convert to &str if it's a JSON value
+            Some("Hi Bob! It's great to meet you. How can I assist you today?")
+        );
+        assert_eq!(
+            parsed_tools[0]
+                .get("function")
+                .and_then(|func| func.get("name"))
+                .and_then(|name| name.as_str()), // Convert to &str if it's a JSON value
+            Some("tavily_search_results_json")
+        );
+        Ok(())
     }
 }
 

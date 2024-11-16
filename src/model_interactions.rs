@@ -11,12 +11,14 @@ pub(super) async fn single_interaction_round(
     request_sender: &mut SendRequest<String>,
     config: &Config,
     messages: Vec<serde_json::Value>,
+    tools: Vec<serde_json::Value>,
+    top_p: f64, temperature: f64,
     recv_private_data: &mut Vec<Vec<u8>>,
     sent_private_data: &mut Vec<Vec<u8>>,
 ) -> Result<String> {
 
     // Prepare the Request to send to the model's API
-    let request = generate_request(messages, &config.model_settings)
+    let request = generate_request(messages, tools, top_p, temperature, &config.model_settings)
         .context("Error generating request")?;
 
     // Collect the private data transmitted in the request
@@ -71,19 +73,23 @@ pub(super) async fn single_interaction_round(
 
     debug!("Extracting the assistant's response...");
 
-    let received_assistant_message = serde_json::json!({"role": "assistant", "content": parsed["choices"][0]["message"]["content"]});
+    let received_assistant_message = serde_json::json!(parsed["choices"][0]["message"]);
 
     Ok(received_assistant_message.to_string())
 }
 
 fn generate_request(
     messages: Vec<serde_json::Value>,
+    tools: Vec<serde_json::Value>,
+    top_p: f64, temperature: f64,
     model_settings: &ModelSettings,
 ) -> Result<hyper::Request<String>> {
-    let messages = serde_json::to_value(messages).context("Error serializing messages")?;
     let mut json_body = serde_json::Map::new();
     json_body.insert("model".to_string(), serde_json::json!(model_settings.id));
-    json_body.insert("messages".to_string(), messages);
+    json_body.insert("messages".to_string(), serde_json::to_value(messages).context("Error serializing messages")?);
+    json_body.insert("tools".to_string(), serde_json::to_value(tools).context("Error serializing tools")?);
+    json_body.insert("top_p".to_string(), serde_json::json!(top_p));
+    json_body.insert("temperature".to_string(), serde_json::json!(temperature));
     let json_body = serde_json::Value::Object(json_body);
 
     // Build the HTTP request to send the prompt to Model's API
